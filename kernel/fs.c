@@ -464,24 +464,24 @@ bmap(struct inode *ip, uint bn)
   bp = bread(ip->dev, addr);
   a = (uint *)bp->data;
   int index = bn / NINDIRECT;
-  for (int i = 0; i <= index; i++)
+
+  addr = a[index];
+  if (addr == 0)
   {
-    if ((addr = a[i]) == 0)
-    {
-      a[i] = addr = balloc(ip->dev);
-      // log write must be in the loop
-      // because when we read we have not the fs syscall
-      log_write(bp);
-    }
+    a[index] = addr = balloc(ip->dev);
+    // log write must be in the loop
+    // because when we read we have not the fs syscall
+    log_write(bp);
   }
 
   brelse(bp);
-  bn -= NINDIRECT * index; // Exactly block
+  uint second = bn % NINDIRECT;
   bp = bread(ip->dev, addr);
   a = (uint *)bp->data;
-  if ((addr = a[bn]) == 0)
+  if ((addr = a[second]) == 0)
   {
-    a[bn] = addr = balloc(ip->dev);
+    a[second] = addr = balloc(ip->dev);
+    log_write(bp);
   }
   brelse(bp);
   return addr;
