@@ -70,16 +70,16 @@ usertrap(void)
   {
     // ok
   }
-  else if ((r_scause() == 15 || r_scause() == 13) &&
-           vmfault(p->pagetable, r_stval(), (r_scause() == 13) ? 1 : 0) != 0)
+  else if (r_scause() == 13 || r_scause() == 15)
   {
-    // page fault on lazily-allocated page
-  }
-  else if (r_scause() == 15)
-  {
-    if ((cowfault(p->pagetable, r_stval())) < 0)
+    // Resolve either COW faults or lazy-allocation page faults.
+    uint64 va = r_stval();
+    if (cowfault(p->pagetable, va) < 0)
     {
-      p->killed = 1;
+      if (vmfault(p->pagetable, va, (r_scause() == 13)) == 0)
+      {
+        setkilled(p);
+      }
     }
   }
   else
@@ -107,20 +107,31 @@ usertrap(void)
 
 int cowfault(pagetable_t pagetable, uint64 va)
 {
-  if (va > MAXVA)
+  if (va >= MAXVA)
     return -1;
+  va = PGROUNDDOWN(va);
   pte_t *pte = walk(pagetable, va, 0);
   if (pte == 0)
     return -1;
-  if (((*pte & PTE_U) == 0) || (*pte & PTE_V) == 0)
+  if (((*pte & PTE_U) == 0) || (*pte & PTE_V) == 0 || ((*pte & PTE_RSW) == 0))
     return -1;
-  uint64 pa1 = PA2PTE(*pte);
-  uint64 pa2 = kalloc();
+  uint64 pa1 = PTE2PA(*pte);
+  uint64 flags = PTE_FLAGS(*pte);
+
+  char *pa2 = kalloc();
   if (pa2 == 0)
     return -1;
-  memmove((void *)pa2, (void *)pa1, PGSIZE);
-  *pte = PA2PTE(pa2) | PTE_U | PTE_V | PTE_W | PTE_X | PTE_R;
+
+  memmove(pa2, (void *)pa1, PGSIZE);
+  flags &= ~PTE_RSW;
+  flags |= PTE_W;
+
+  *pte = PA2PTE(pa2) | flags;
+
   kfree((void *)pa1);
+
+  sfence_vma();
+
   return 0;
 }
 //

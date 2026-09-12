@@ -37,8 +37,10 @@ void freerange(void *pa_start, void *pa_end)
   char *p;
   p = (char *)PGROUNDUP((uint64)pa_start);
   for (; p + PGSIZE <= (char *)pa_end; p += PGSIZE)
+  {
     refcnt[(uint64)p / PGSIZE] = 1;
-  kfree(p);
+    kfree(p);
+  }
 }
 
 // Free the page of physical memory pointed at by pa,
@@ -62,25 +64,28 @@ void increase(uint64 pa)
 void kfree(void *pa)
 {
   struct run *r;
+  int pn;
+  int newref;
 
   if (((uint64)pa % PGSIZE) != 0 || (char *)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  // Fill with junk to catch dangling refs.
-  memset(pa, 1, PGSIZE);
-
-  r = (struct run *)pa;
-
   acquire(&kmem.lock);
-  int pn = (uint64)pa / PGSIZE;
+  pn = (uint64)pa / PGSIZE;
   if (refcnt[pn] < 1)
   {
     panic("kfree panic");
   }
-  int tmp = --refcnt[pn];
+  newref = --refcnt[pn];
   release(&kmem.lock);
-  if (tmp > 0)
+
+  if (newref > 0)
     return;
+
+  // Fill with junk to catch dangling refs once the page is truly free.
+  memset(pa, 1, PGSIZE);
+  r = (struct run *)pa;
+
   acquire(&kmem.lock);
 
   r->next = kmem.freelist;

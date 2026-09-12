@@ -310,17 +310,24 @@ int uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   for (i = 0; i < sz; i += PGSIZE)
   {
     if ((pte = walk(old, i, 0)) == 0)
-      continue; // page table entry hasn't been allocated
+      panic("page not present"); // page table entry hasn't been allocated
     if ((*pte & PTE_V) == 0)
-      continue; // physical page hasn't been allocated
+      panic("invalid page"); // physical page hasn't been allocated
     pa = PTE2PA(*pte);
-    *pte &= ~PTE_W;
     flags = PTE_FLAGS(*pte);
+
+    if (flags & PTE_W)
+    {
+      flags |= PTE_RSW;
+      flags &= ~PTE_W;
+      *pte = PA2PTE(pa) | flags;
+    }
 
     if (mappages(new, i, PGSIZE, (uint64)pa, flags) != 0)
     {
       goto err;
     }
+    increase(pa);
   }
   return 0;
 
@@ -354,10 +361,6 @@ int copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     va0 = PGROUNDDOWN(dstva);
     if (va0 >= MAXVA)
       return -1;
-    if (cowfault(pagetable, va0) == 0)
-    {
-      return -1;
-    }
     pa0 = walkaddr(pagetable, va0);
     if (pa0 == 0)
     {
@@ -368,7 +371,23 @@ int copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     }
 
     pte = walk(pagetable, va0, 0);
+    if (pte == 0 || (*pte & PTE_V) == 0)
+      return -1;
+
     // forbid copyout over read-only user text pages.
+    if (*pte & PTE_RSW)
+    {
+      if (cowfault(pagetable, va0) < 0)
+      {
+        return -1;
+      }
+      pa0 = walkaddr(pagetable, va0);
+      if (pa0 == 0)
+        return -1;
+      pte = walk(pagetable, va0, 0);
+      if (pte == 0 || (*pte & PTE_V) == 0)
+        return -1;
+    }
     if ((*pte & PTE_W) == 0)
       return -1;
 
@@ -491,25 +510,6 @@ vmfault(pagetable_t pagetable, uint64 va, int read)
     return 0;
   }
   return mem;
-}
-
-int cowfault(pagetable_t pagetable, uint64 va)
-{
-  if (va > MAXVA)
-    return -1;
-  pte_t *pte = walk(pagetable, va, 0);
-  if (pte == 0)
-    return -1;
-  if (((*pte & PTE_U) == 0) || (*pte & PTE_V) == 0)
-    return -1;
-  uint64 pa1 = PA2PTE(*pte);
-  uint64 pa2 = kalloc();
-  if (pa2 == 0)
-    return -1;
-  memmove((void *)pa2, (void *)pa1, PGSIZE);
-  *pte = PA2PTE(pa2) | PTE_U | PTE_V | PTE_W | PTE_X | PTE_R;
-  kfree((void *)pa1);
-  return 0;
 }
 
 int ismapped(pagetable_t pagetable, uint64 va)
