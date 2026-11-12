@@ -39,6 +39,8 @@ OBJS_KCSAN = \
   $K/uart.o \
   $K/spinlock.o
 
+EXTRA_FS_FILES += $U/hello.sh
+
 ifdef KCSAN
 OBJS_KCSAN += \
 	$K/kcsan.o
@@ -279,8 +281,8 @@ ifeq ($(LAB),util)
 endif
 
 
-fs.img: mkfs/mkfs README $(UEXTRA) $(UPROGS)
-	mkfs/mkfs fs.img README $(UEXTRA) $(UPROGS)
+fs.img: mkfs/mkfs README $(UEXTRA) $(UPROGS) $(EXTRA_FS_FILES)
+	mkfs/mkfs fs.img README $(UEXTRA) $(UPROGS) $(EXTRA_FS_FILES)
 
 newfs.img: 
 	-mv -f fs.img fs.img.bk
