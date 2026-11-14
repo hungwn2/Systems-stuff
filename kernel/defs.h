@@ -187,3 +187,7 @@ void virtio_disk_intr(void);
 // semaphore
 
 void seminit(void);
+
+// mmap
+int mmap(uint64 vaddr, uint perms);
+int uvmcopypage(pagetable_t old, pagetable_t new, uint64 va);

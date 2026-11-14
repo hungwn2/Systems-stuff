@@ -59,3 +59,5 @@ void sem_init(semaphore *s, int count);
 void sem_wait(semaphore *s);
 
 void sem_post(semaphore *s);
+
+int mmap(uint64 vaddr, uint perms);

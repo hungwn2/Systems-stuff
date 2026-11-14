@@ -197,7 +197,10 @@ UPROGS=\
 	$U/_logstress\
 	$U/_forphan\
 	$U/_dorphan\
-	$U/_semtest\
+	$U/_mmaptest\
+
+
+# 	$U/_semtest\
 
 
 
