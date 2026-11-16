@@ -45,76 +45,108 @@ void freerange(void *pa_start, void *pa_end)
 // which normally should have been returned by a
 // call to kalloc().  (The exception is when
 // initializing the allocator; see kinit above.)
+
 void kfree(void *pa)
 {
   struct run *r;
 
-  if (((uint64)pa % PGSIZE) != 0 || (char *)pa < end || (uint64)pa >= PHYSTOP)
+  if (((uint64)pa % PGSIZE) != 0 ||
+      (char *)pa < end ||
+      (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
 
   r = (struct run *)pa;
+
   push_off();
   int id = cpuid();
+
   acquire(&kmem[id].lock);
+
   r->next = kmem[id].freelist;
   kmem[id].freelist = r;
-  pop_off();
+
   release(&kmem[id].lock);
+  pop_off();
 }
 
 // Allocate one 4096-byte page of physical memory.
 // Returns a pointer that the kernel can use.
 // Returns 0 if the memory cannot be allocated.
+
 void *
 kalloc(void)
 {
   struct run *r = 0;
-  struct run *slow;
-  struct run *prevslow = 0;
-  struct run *fast;
+
   push_off();
   int id = cpuid();
+
+  // Try the local CPU's freelist.
   acquire(&kmem[id].lock);
+
   r = kmem[id].freelist;
 
-  pop_off();
-
   if (r)
-  {
     kmem[id].freelist = r->next;
-    release(&kmem[id].lock);
-    memset((char *)r, 5, PGSIZE); // fill with junk
-    return (void *)r;
-  }
+
   release(&kmem[id].lock);
 
-  // If local list was empty, steal from another CPU.
-
-  for (int i = 0; i < NCPU; i++)
+  if (r == 0)
   {
-    if (i == id)
-      continue;
-
-    acquire(&kmem[i].lock);
-
-    r = kmem[i].freelist;
-    if (r)
-      fast = slow = kmem[i].freelist;
-    while (fast && fast->next)
+    // Local freelist is empty. Steal from another CPU.
+    for (int i = 0; i < NCPU; i++)
     {
-      prevslow = slow;
-      slow = slow->next;
-      fast = fast->next->next;
+      if (i == id)
+        continue;
+
+      acquire(&kmem[i].lock);
+
+      struct run *head = kmem[i].freelist;
+
+      if (head)
+      {
+        struct run *tail = head;
+        int count = 1;
+
+        // Find up to STEAL_BATCH pages.
+        while (count < STEAL_BATCH && tail->next)
+        {
+          tail = tail->next;
+          count++;
+        }
+
+        // Detach the batch from the donor.
+        kmem[i].freelist = tail->next;
+        tail->next = 0;
+
+        release(&kmem[i].lock);
+
+        // Return the first page.
+        r = head;
+        struct run *remaining = r->next;
+        r->next = 0;
+
+        // Put the remaining pages on our local freelist.
+        if (remaining)
+        {
+          acquire(&kmem[id].lock);
+
+          tail->next = kmem[id].freelist;
+          kmem[id].freelist = remaining;
+
+          release(&kmem[id].lock);
+        }
+
+        break;
+      }
+
+      release(&kmem[i].lock);
     }
-
-    release(&kmem[i].lock);
-
-    if (r)
-      break;
   }
+
+  pop_off();
 
   if (r)
     memset((char *)r, 5, PGSIZE);

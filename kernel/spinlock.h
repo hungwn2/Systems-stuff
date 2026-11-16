@@ -1,10 +1,11 @@
 // Mutual exclusion lock.
-struct spinlock {
-  uint locked;       // Is the lock held?
+struct spinlock
+{
+  uint locked; // Is the lock held?
 
   // For debugging:
-  char *name;        // Name of lock.
-  struct cpu *cpu;   // The cpu holding the lock.
+  char *name;      // Name of lock.
+  struct cpu *cpu; // The cpu holding the lock.
 #ifdef LAB_LOCK
   int nts;
   int n;
@@ -13,8 +14,12 @@ struct spinlock {
 
 #ifdef LAB_LOCK
 // Reader-writer lock.
-struct rwspinlock {
+struct rwspinlock
+{
   // Replace this with your implementation.
   struct spinlock l;
+  int readers;
+  int writer;
+  int waiting_writers;
 };
 #endif
